@@ -1,0 +1,140 @@
+```{r}
+library(Seurat)
+library(dplyr)
+library(viridis)
+library(ggplot2)
+library(Matrix)
+library(RColorBrewer)
+library(scales)
+library(data.table)
+library(viridis)
+```
+
+```{r}
+sample <- readRDS("ChiR_IWP_2017.rds")
+Idents(object = sample) <- sample@meta.data$SCT_snn_res.0.5
+```
+
+```{r}
+DimPlot(sample, reduction = "umap", label = FALSE) + NoLegend()
+DimPlot(sample, reduction = "umap", label = TRUE)
+DimPlot(sample, reduction = "umap", label = FALSE, group.by = "orig.ident", cols = c("red3", "blue3")) + NoLegend()
+```
+
+```{r}
+fun <- function(x) {
+  if (x == "0") {"WNTi Macs"} 
+  else if (x == "1") {"WNTd Macs"}
+  else if (x == "2") {"WSB1"}
+  else if (x == "3") {"Mono"}
+  else if (x == "4") {"Prolif"}
+  else if (x == "5") {"WNTd Macs"}
+  else if (x == "6") {"MT2A"}
+  else if (x == "7") {"CCL4"}
+  else if (x == "8") {"AREG"}
+  else if (x == "9") {"IFN"}
+  else if (x == "10") {"MMP12"}
+  else if (x == "11") {"Mast"}
+}
+
+# Filter for only Donor and Day 0
+sample$annotations <- mapply(fun, sample$SCT_snn_res.0.5)
+```
+
+```{r}
+DimPlot(sample, reduction = "umap", label = FALSE, group.by = "annotations") + NoLegend()
+DimPlot(sample, reduction = "umap", label = TRUE, group.by = "annotations")
+```
+
+
+# Look at cell type breakdown
+```{r}
+#sample$orig.ident <- factor(sample$orig.ident, levels = c("Pod1R", "Pod7R", "Pod14R"), ordered = TRUE)
+ggplot(sample@meta.data, aes(x=annotations, fill=orig.ident)) + geom_bar(position = "fill") + theme_bw() + scale_fill_manual(values=c("red3", "blue3")) + theme(axis.text.x = element_text(angle = 0))
+```
+
+```{r}
+expdata <- GetAssayData(sample)
+Pop1 <- c("MT-ND4", "MT-ND5", "MT-CO2", "MT-CYB")
+pops<-list(Pop1)
+
+#Z-Scores
+z_scores<-NULL
+
+for (i in 1:length(pops)) {
+genes <- pops[[i]]
+zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+av <- numeric(ncol(expdata))
+
+geneExp <- as.matrix(expdata[zz, ])
+geneExp <- t(scale(t(geneExp)))
+geneExp[is.nan(geneExp)] <- 0
+z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))
+}
+sample@meta.data$pop1_z<-z_scores[1,]
+FeaturePlot(object=sample, features = "pop1_z",pt.size=.5) + scale_color_gradientn(colors=c("blue","turquoise2","yellow","red","red4"), oob=scales::squish, limits=c(0,2))
+```
+
+```{r}
+FeaturePlot(object=sample, features = "MMP12", pt.size=) + scale_color_gradientn(colors=c("blue","turquoise2","yellow","red","red4"), oob=scales::squish, limits=c(0,1)) 
+```
+
+```{r}
+sample$annotations <- factor(sample$annotations, levels = c("MT2A", "Mono", "AREG", "WSB1", "MMP12", "WNTd Macs", "Prolif", "CCL4", "WNTi Macs", "IFN", "Mast"), ordered = TRUE)
+
+DotPlot(sample, features = c("MT2A", "FCN1", "AREG", "WSB1", "MMP12", "TREM2", "MKI67", "CCL4", "LYVE1", "ISG15", "KIT"), group.by = "annotations") + RotatedAxis() 
+```
+
+```{r}
+VlnPlot(sample, features = c("MT2A", "FCN1", "AREG", "WSB1", "MMP12", "TREM2", "MKI67", "CCL4", "LYVE1", "ISG15", "KIT"), group.by = "annotations", stack = TRUE) + NoLegend()
+```
+
+```{r}
+Idents(sample) <- "annotations"
+sample.rnamarkers <- FindAllMarkers(sample, only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.25)
+#write.csv(sample.rnamarkers, file ="/Users/jamrute/Desktop/global_annotations_DGE.csv", quote = FALSE)
+```
+
+```{r}
+top10 <- sample.rnamarkers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+DoHeatmap(sample, features = top10$gene) + NoLegend() + scale_fill_viridis()
+```
+
+##### Analyze the Macs
+```{r}
+Idents(object = sample) <- sample@meta.data$SCT_snn_res.0.5
+macs <- subset(sample, idents = c("0", "1", "2", "5", "6", "7", "8", "9", "10"))
+DimPlot(macs, reduction = "umap", label = TRUE) + NoLegend()
+```
+
+```{r}
+VlnPlot(macs, features = c("CYBB", "TLR2", "ITGB2", "CLEC7A"), group.by = "orig.ident", stack = TRUE) + NoLegend()
+```
+
+```{r}
+Idents(macs) <- "orig.ident"
+macs.rnamarkers <- FindAllMarkers(macs, only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.25)
+write.csv(macs.rnamarkers, file ="/Users/jamrute/Desktop/macs_ChiR_vs_IWP_DGE_pos.csv", quote = FALSE)
+```
+
+```{r}
+top10 <- macs.rnamarkers %>% group_by(cluster) %>% top_n(n = 25, wt = avg_log2FC)
+DoHeatmap(macs, features = top10$gene, group.colors = c("red3", "blue3")) + NoLegend() + scale_fill_viridis()
+```
+
+```{r}
+Idents(macs) <- "orig.ident"
+macs.rnamarkers <- FindAllMarkers(macs, only.pos = FALSE, min.pct = 0, logfc.threshold = 0)
+write.csv(macs.rnamarkers, file ="/Users/jamrute/Desktop/macs_ChiR_vs_IWP_DGE_pos_neg.csv", quote = FALSE)
+```
+
+```{r}
+desired_genes <- c("MT2A","MT1X","ALOX5AP","RETN","MALAT1","TREM2","WSB1","BTG1","SLC11A1","CAPG","RPSA","RPS2","MT1G","EEF1B2","CD74","SPP1","MT-ND6","ENO1","SLC25A37","ASGR2","ACTG1","RPL3","MS4A7","PGK1","SAT1","THBS1","RPLP0","BNIP3","VMP1","RPL10A","RPL4","NKG7","MT1E","RPL6","LGALS1","ALDH2","RPS18","RPS3","PGAM1","NT5DC2","ADAM28","RPS19","RPS6","PLAUR","CD14","RPS10","DDIT4","PLXDC2","GAPDH","A2M","RPS8","DENND3","SCD","RPL5","S100A10","CLEC5A","PVALB","MT-CO2","MT-ND4","IFITM3","LYVE1","FTL","SELENOP","CSTB","MT-CYB","MT-CO1","MT-CO3","CD36","DAB2","MT-ND5","MT-ATP6","IFITM2","LILRB5","CFD","F13A1","CTSZ","EGFL7","MT-ND3","IGFBP4","PLTP","FCGR2B","MT-ND2","TMEM70","CTSB","FOLR2","HSD17B4","LGMN","NINJ1","SIGLEC1","LGALS9","GATM","ATP1B1","FSCN1","ABCA1","BLVRB","CDA","B3GNT7","NPL","ISG15","C2","HSPA1A","MAF","CCND1","POLR2L","RGL1","COLEC12","SNX3","FRMD4B")
+DoHeatmap(macs, features = desired_genes, group.by = "orig.ident") + NoLegend() + scale_fill_viridis() + theme(text = element_text(size = 4))
+```
+
+
+
+
+
+

@@ -1,0 +1,152 @@
+```{r}
+library(Seurat)
+library(dplyr)
+library(viridis)
+library(ggplot2)
+library(Matrix)
+library(RColorBrewer)
+library(scales)
+library(data.table)
+library(viridis)
+```
+
+```{r}
+sample <- readRDS("ChirIWP.rds")
+```
+
+```{r}
+sample <- UpdateSeuratObject(sample)
+```
+
+```{r}
+Idents(object = sample) <- sample@meta.data$SCT_snn_res.0.6
+DefaultAssay(sample) <- "SCT"
+```
+
+```{r}
+DimPlot(sample, reduction = "umap", label = TRUE)
+DimPlot(sample, reduction = "umap", label = FALSE) + NoLegend()
+DimPlot(sample, reduction = "umap", label = FALSE, split.by = "orig.ident") + NoLegend()
+DimPlot(sample, reduction = "umap", label = FALSE, group.by = "orig.ident", cols = c("red3", "blue3")) + NoLegend()
+```
+
+```{r}
+sample_A <- FindSubCluster(sample, cluster = "9", algorithm = 3, resolution = 0.1, graph.name = "SCT_snn")
+Idents(sample_A) <- "sub.cluster"
+```
+
+```{r}
+DimPlot(sample_A, reduction = "umap", label = TRUE)
+DimPlot(sample_A, reduction = "umap", label = FALSE) + NoLegend()
+DimPlot(sample_A, reduction = "umap", label = FALSE, split.by = "orig.ident") + NoLegend()
+```
+
+
+```{r}
+fun <- function(x) {
+  if (x == "0") {"Mac 2"} 
+  else if (x == "1") {"RBC"}
+  else if (x == "2") {"GMP"}
+  else if (x == "3") {"GMP"}
+  else if (x == "4") {"Mono"}
+  else if (x == "5") {"Mast"}
+  else if (x == "6") {"Eosinophil"}
+  else if (x == "7") {"Megak"}
+  else if (x == "8") {"DC"}
+  else if (x == "9_0") {"Fibro"}
+  else if (x == "9_1") {"Endo"}
+  else if (x == "10") {"RBC"}
+  else if (x == "11") {"Mono"}
+  else if (x == "12") {"CD34+ Progen"}
+  else if (x == "13") {"Mac 1"}
+}
+
+# Filter for only Donor and Day 0
+sample_A$annotations <- mapply(fun, sample_A$sub.cluster)
+```
+
+```{r}
+DimPlot(sample_A, reduction = "umap", label = FALSE, group.by = "annotations") + NoLegend()
+DimPlot(sample_A, reduction = "umap", label = TRUE, group.by = "annotations")
+DimPlot(sample_A, reduction = "umap", label = FALSE, split.by = "orig.ident", group.by = "annotations") + NoLegend()
+```
+
+# Look at cell type breakdown
+```{r}
+#sample$orig.ident <- factor(sample$orig.ident, levels = c("Pod1R", "Pod7R", "Pod14R"), ordered = TRUE)
+ggplot(sample_A@meta.data, aes(x=annotations, fill=orig.ident)) + geom_bar(position = "fill") + theme_bw() + scale_fill_manual(values=c("red3", "blue3")) + theme(axis.text.x = element_text(angle = 0))
+```
+
+```{r}
+expdata <- GetAssayData(sample_A)
+Pop1 <- c("CAV1", "S100A16", "CLDN11", "HMGA2", "DKK1")
+pops<-list(Pop1)
+
+#Z-Scores
+z_scores<-NULL
+
+for (i in 1:length(pops)) {
+genes <- pops[[i]]
+zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+av <- numeric(ncol(expdata))
+
+geneExp <- as.matrix(expdata[zz, ])
+geneExp <- t(scale(t(geneExp)))
+geneExp[is.nan(geneExp)] <- 0
+z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))
+}
+sample_A@meta.data$pop1_z<-z_scores[1,]
+FeaturePlot(object=sample_A, features = "pop1_z",pt.size=.5) + scale_color_gradientn(colors=c("blue","turquoise2","yellow","red","red4"), oob=scales::squish, limits=c(0,2))
+```
+
+```{r}
+FeaturePlot(object=sample_A, features = "DCN", pt.size=) + scale_color_gradientn(colors=c("blue","turquoise2","yellow","red","red4"), oob=scales::squish, limits=c(0,1)) 
+```
+
+```{r}
+Idents(sample_A) <- "annotations"
+sample_A.rnamarkers <- FindAllMarkers(sample_A, only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.25)
+write.csv(sample_A.rnamarkers, file ="/Users/jamrute/Desktop/global_annotations_DGE.csv", quote = FALSE)
+```
+
+```{r}
+sample_A$annotations <- factor(sample_A$annotations, levels = c("CD34+ Progen","GMP","Mono","DC","Mac 1","Mac 2","Eosinophil","Megak","Mast","RBC","Endo","Fibro"), ordered = TRUE)
+Idents(sample_A) <- "annotations"
+```
+
+```{r}
+top10 <- sample_A.rnamarkers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+DoHeatmap(sample_A, features = top10$gene) + NoLegend() + scale_fill_viridis()
+```
+```{r}
+DotPlot(sample_A, features = c("PRTN3","HLA-DRA","SPP1","ENHO","S100A8","ANGPT1","COL1A1","PRG3","PPBP","TPSB2","LYVE1","S100A16","HBZ"), group.by = "annotations") + RotatedAxis() 
+```
+
+```{r}
+VlnPlot(sample_A, features = c("CD34","MPO","LSP1","CD1C","LYVE1","SPP1","PRG3","PF4","TPSB2","HBZ","S100A16","LUM"), group.by = "annotations", stack = TRUE) + NoLegend()
+```
+
+```{r}
+top10 <- c("ANGPT1","GYPE","MYLK","SLC37A1","CD34","PRTN3","MPO","DEFA4","AZU1","ELANE","PLAC8","LSP1","ASGR2","CORO1A","HLA-DRA","FGL2","ITGB7","CLEC4A","CD1C","LYVE1","SIGLEC1","LILRB5","GAPLINC","PVALB","SPP1","C1QB","C1QC","VSIG4","C1QA","PRG3","CLC","EPX","PRG2","LMO4","PPBP","PF4","CLEC1B","GP9","CMTM5","TPSB2","TPSAB1","HPGD","HPGDS","GATA2","HBZ","HBE1","HBA2","HBA1","HBG2","S100A16","CAV1","TFPI2","CLDN11","CTGF","IGFBP3","COL1A1","TAGLN","CXCL14","LUM")
+DoHeatmap(sample_A, features = top10) + NoLegend() + scale_fill_viridis()
+```
+
+```{r}
+FeaturePlot(sample, features = c("IL3RA"))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

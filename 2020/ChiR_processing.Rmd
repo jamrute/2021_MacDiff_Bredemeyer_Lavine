@@ -1,0 +1,144 @@
+---
+title: "ChiR"
+output: html_notebook
+---
+
+
+```{r}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(sctransform)
+library(ggplot2)
+library(viridis)
+```
+
+###### Preprocessing Steps
+
+# Load the dataset and create a Seurat Object
+```{r}
+data_dir <- "/Users/jamrute/Documents/Graduate_School/Thesis_Lab/Lavine_Projects/Converted_to_v3/ChiR/filtered_feature_bc_matrix/"
+sample.data <- Read10X(data.dir =data_dir)
+sample <- CreateSeuratObject(counts = sample.data, project = "ChiR", min.cells = 3, min.features = 200)
+```
+
+# Look at the features
+```{r}
+sample[["percent.mt"]] <- PercentageFeatureSet(sample, pattern = "^MT-")
+VlnPlot(sample, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+ggsave("/Users/jamrute/Desktop/preQC_metrics.png", width = 12, height = 6)
+```
+
+# SCTransform and filtering
+```{r}
+sample <- subset(sample, subset = nFeature_RNA > 200 & nFeature_RNA < 7000 & percent.mt < 7.5)
+sample <- SCTransform(sample, vars.to.regress = "percent.mt", verbose = FALSE,
+                      conserve.memory = TRUE, return.only.var.genes = TRUE)
+```
+
+# Look at features post filtering
+```{r}
+VlnPlot(sample, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+ggsave("/Users/jamrute/Desktop/postQC_metrics.png", width = 12, height = 6)
+```
+
+# Cell Cycle Regression
+```{r}
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+sample <- CellCycleScoring(sample, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+sample <- RunPCA(sample, features = c(s.genes, g2m.genes))
+DimPlot(sample, reduction="pca")
+ggsave("/Users/jamrute/Desktop/preCCRegression_PCs.png", width = 12, height = 6)
+```
+
+# Regress out the effect of the Cell Cycle
+```{r}
+sample <- SCTransform(sample, vars.to.regress=c("percent.mt", "S.Score", "G2M.Score"), verbose = FALSE,
+                      conserve.memory = TRUE, return.only.var.genes = TRUE)
+sample <- RunPCA(sample, features = c(s.genes, g2m.genes))
+DimPlot(sample, reduction="pca")
+ggsave("/Users/jamrute/Desktop/postCCRegression_PCs.png", width = 12, height = 6)
+```
+
+###### Dimensionality Reduction
+
+```{r}
+sample <- RunPCA(sample, features = VariableFeatures(object = sample), npcs=100, verbose=TRUE)
+ElbowPlot(sample)
+ggsave("/Users/jamrute/Desktop/PC_elbow.png", width = 12, height = 6)
+```
+
+```{r}
+sample <- FindNeighbors(sample, dims = 1:50, verbose = FALSE)
+sample <- FindClusters(sample, resolution = c(0.3, 0.4, 0.5, 0.6, 0.7, 0.8), verbose = FALSE)
+sample <- RunUMAP(sample, dims = 1:50, verbose = FALSE)
+DimPlot(sample, reduction = "umap", label = TRUE)
+ggsave("/Users/jamrute/Desktop/UMAP_res0.8.png", width = 12, height = 6)
+```
+
+###### DGE
+
+```{r}
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+sample.markers <- FindAllMarkers(sample, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+sample.markers %>% group_by(cluster) %>% top_n(n = 25, wt = avg_logFC)
+```
+
+###### Annotate Clusters
+
+```{r}
+new.cluster.ids <- c("0", "1", "2", "3", "4", "5", "6", "Mast", "Megak", "LMP", "Progenitor", "11", "Hemo/Endo", "RBCs")
+names(new.cluster.ids) <- levels(sample)
+sample <- RenameIdents(sample, new.cluster.ids)
+DimPlot(sample, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend()
+ggsave("/Users/jamrute/Desktop/UMAP_labeled_res0.5.png", width = 12, height = 6)
+```
+
+###### Save all Files
+
+```{r}
+save_dir <- "/Users/jamrute/Desktop"
+
+# Save a .rds
+saveRDS(sample, file = file.path(save_dir, "ChiR.rds"))
+
+# Save the normalized SCT matrix
+write.csv(as.matrix(sample[["SCT"]]@scale.data), 
+          file = file.path(save_dir, "ChiR_SCT_normalized.txt"), quote = FALSE)
+
+# Save the meta data
+write.csv(sample@meta.data, file = file.path(save_dir, "ChiR_meta.csv"), quote = FALSE)
+
+# Save the top DGE for clusters
+write.csv(sample.markers, file = file.path(save_dir, "ChiR_DGE.csv"), quote = FALSE)
+
+# Save a loom version for loading into scanpy
+sample.loom <- as.loom(sample, filename = file.path(save_dir, "ChiR.loom"), verbose = FALSE)
+sample.loom$close_all()
+```
+
+```{r}
+sample <- readRDS("./ChiR.rds")
+```
+
+```{r}
+sample$annotations <- Idents(sample)
+```
+
+```{r}
+Idents(object = sample) <- sample@meta.data$annotations
+sample.markers <- FindAllMarkers(sample, only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.05)
+write.csv(sample.markers, file = file.path("/Users/jamrute/Desktop", "2020_ChiR_DGE.csv"), quote = FALSE)
+```
+
+```{r}
+top10 <- sample.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_log2FC)
+DoHeatmap(sample, features = top10$gene) + NoLegend() + scale_fill_viridis()
+```
+
+
+
+
+
+

@@ -1,0 +1,42 @@
+```{r}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(sctransform)
+library(ggplot2)
+```
+
+```{r}
+IWP <- readRDS("/Users/jamrute/Desktop/IWP/IWP.rds")
+```
+
+```{r}
+IWP_myeloid <- subset(IWP, idents = c("RBCs", "1", "Mast", "Megak", "4", "Macrophage", "Monocyte", "7","9", "10"))
+```
+
+```{r}
+DimPlot(IWP_myeloid, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend()
+ggsave("/Users/jamrute/Desktop/UMAP_labeled_myeloid_res0.5.png", width = 12, height = 6)
+```
+
+```{r}
+IWP_myeloid@meta.data["annotated_names"] <- IWP_myeloid@active.ident
+```
+
+```{r}
+save_dir <- "/Users/jamrute/Desktop"
+
+# Save a .rds
+saveRDS(IWP_myeloid, file = file.path(save_dir, "IWP_myeloid.rds"))
+
+# Save the normalized SCT matrix
+write.csv(as.matrix(IWP_myeloid[["SCT"]]@scale.data), 
+          file = file.path(save_dir, "IWP_myeloid_SCT_normalized.txt"), quote = FALSE)
+
+# Save the meta data
+write.csv(IWP_myeloid@meta.data, file = file.path(save_dir, "IWP_myeloid_meta.csv"), quote = FALSE)
+
+# Save a loom version for loading into scanpy
+IWP_myeloid.loom <- as.loom(IWP_myeloid, filename = file.path(save_dir, "IWP_myeloid.loom"), verbose = FALSE)
+IWP_myeloid.loom$close_all()
+```

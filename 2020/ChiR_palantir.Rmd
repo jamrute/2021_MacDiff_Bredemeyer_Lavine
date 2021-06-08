@@ -1,0 +1,65 @@
+```{r}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(ggplot2)
+library(viridis)
+library(dorothea)
+library(tibble)
+library(pheatmap)
+library(tidyr)
+library(viper)
+```
+
+```{r}
+myeloid <- readRDS("../Myeloid/ChiR_myeloid.rds")
+```
+
+```{r}
+myeloid <- UpdateSeuratObject(myeloid)
+```
+
+```{r}
+DimPlot(myeloid, reduction = "umap", label=TRUE, group.by = "annotated_names") + NoLegend()
+```
+
+###### Overlaying Palantir results on UMAP
+
+##### Myeloid
+```{r}
+myeloid_meta <- read.csv2('./ChiR_myeloid_palantir_meta_data.csv', header=TRUE, sep=',', row.names = 1)
+Myeloid_2 <- AddMetaData(myeloid, myeloid_meta)
+
+Myeloid_2@meta.data$pseudotime <- as.numeric(as.character(Myeloid_2@meta.data$pseudotime))
+Myeloid_2@meta.data$entropy <- as.numeric(as.character(Myeloid_2@meta.data$entropy))
+```
+
+```{r}
+FeaturePlot(Myeloid_2, reduction = "umap", features = c("pseudotime")) + scale_color_gradientn(colors=c("blue", "turquoise2","yellow","red","red4"), oob=scales::squish, limits=c(0,0.6))
+#ggsave('./myeloid_sc_pseudotime_umap_other.png', dpi=1000)
+
+FeaturePlot(Myeloid_2, reduction = "umap", features = c("entropy")) + scale_color_gradientn(colors=c("blue", "turquoise2","yellow","red","red4"), oob=scales::squish, limits=c(0.7,1))
+#ggsave('./myeloid_sc_entropy_umap_other.png', dpi=1000)
+```
+
+```{r}
+Myeloid_2@meta.data$X0 <- as.numeric(as.character(Myeloid_2@meta.data$X0))
+Myeloid_2@meta.data$X5 <- as.numeric(as.character(Myeloid_2@meta.data$X5))
+Myeloid_2@meta.data$Mast <- as.numeric(as.character(Myeloid_2@meta.data$Mast))
+Myeloid_2@meta.data$RBCs <- as.numeric(as.character(Myeloid_2@meta.data$RBCs))
+Myeloid_2@meta.data$Megak <- as.numeric(as.character(Myeloid_2@meta.data$Megak))
+```
+
+```{r}
+FeaturePlot(Myeloid_2, reduction = "umap", features = c("X0")) + scale_color_gradientn(colors=c("blue", "turquoise2","yellow","red","red4"), oob=scales::squish, limits=c(0,0.5))
+
+FeaturePlot(Myeloid_2, reduction = "umap", features = c("X5")) + scale_color_gradientn(colors=c("blue", "turquoise2","yellow","red","red4"), oob=scales::squish, limits=c(0,0.5))
+
+FeaturePlot(Myeloid_2, reduction = "umap", features = c("Mast")) + scale_color_gradientn(colors=c("blue", "turquoise2","yellow","red","red4"), oob=scales::squish, limits=c(0,0.5))
+
+FeaturePlot(Myeloid_2, reduction = "umap", features = c("RBCs")) + scale_color_gradientn(colors=c("blue", "turquoise2","yellow","red","red4"), oob=scales::squish, limits=c(0,0.5))
+
+FeaturePlot(Myeloid_2, reduction = "umap", features = c("Megak")) + scale_color_gradientn(colors=c("blue", "turquoise2","yellow","red","red4"), oob=scales::squish, limits=c(0,0.5))
+```
+
+

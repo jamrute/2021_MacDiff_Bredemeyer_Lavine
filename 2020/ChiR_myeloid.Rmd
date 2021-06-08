@@ -1,0 +1,50 @@
+```{r}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(sctransform)
+library(ggplot2)
+```
+
+```{r}
+ChiR <- readRDS("/Users/jamrute/Desktop/ChiR/ChiR.rds")
+```
+
+```{r}
+ChiR_myeloid <- subset(ChiR, idents = c("0", "1", "2", "3", "4", "5", "6", "Mast", "Megak", "Progenitor", "11", "RBCs"))
+```
+
+```{r}
+ChiR_myeloid <- readRDS("./ChiR_myeloid.rds")
+```
+
+```{r}
+DimPlot(ChiR_myeloid, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend()
+```
+
+```{r}
+ChiR_myeloid@meta.data["annotated_names"] <- ChiR_myeloid@active.ident
+```
+
+```{r}
+FeaturePlot(ChiR_myeloid, features = "CXCR4")
+```
+
+
+```{r}
+save_dir <- "/Users/jamrute/Desktop/ChiR/Myeloid"
+
+# Save a .rds
+saveRDS(ChiR_myeloid, file = file.path(save_dir, "ChiR_myeloid.rds"))
+
+# Save the normalized SCT matrix
+write.csv(as.matrix(ChiR_myeloid[["SCT"]]@scale.data), 
+          file = file.path(save_dir, "ChiR_myeloid_SCT_normalized.txt"), quote = FALSE)
+
+# Save the meta data
+write.csv(ChiR_myeloid@meta.data, file = file.path(save_dir, "ChiR_myeloid_meta.csv"), quote = FALSE)
+
+# Save a loom version for loading into scanpy
+ChiR_myeloid.loom <- as.loom(ChiR_myeloid, filename = file.path(save_dir, "ChiR_myeloid.loom"), verbose = FALSE)
+ChiR_myeloid.loom$close_all()
+```

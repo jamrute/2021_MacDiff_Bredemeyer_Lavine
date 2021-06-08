@@ -1,0 +1,280 @@
+---
+title: "Combined_2017"
+output: html_notebook
+---
+
+
+```{r}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(sctransform)
+library(ggplot2)
+library(viridis)
+```
+
+###### Preprocessing Steps
+
+# Load the dataset and create a Seurat Object
+```{r}
+ChiR_dir <- "/Volumes/klavine/Active/shared/Andrea_2017/HKTC3BBXX/Cellranger/CHIR/outs/filtered_feature_bc_matrix/"
+ChiR.data <- Read10X(data.dir =ChiR_dir)
+ChiR <- CreateSeuratObject(counts = ChiR.data, min.cells = 3, min.features = 200, project = "ChiR")
+ChiR$orig.ident <- "ChiR"
+
+IWP_dir <- "/Volumes/klavine/Active/shared/Andrea_2017/HKTC3BBXX/Cellranger/IWP/outs/filtered_feature_bc_matrix/"
+IWP.data <- Read10X(data.dir =IWP_dir)
+IWP <- CreateSeuratObject(counts = IWP.data, min.cells = 3, min.features = 200, project = "IWP")
+IWP$orig.ident <- "IWP"
+
+sample <- merge(ChiR, y = c(IWP), project = "2017_combined")
+```
+
+# Look at the features
+```{r}
+sample[["percent.mt"]] <- PercentageFeatureSet(sample, pattern = "^MT-")
+VlnPlot(sample, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, split.by = "orig.ident")
+ggsave("/Users/jamrute/Desktop/preQC_metrics.png", width = 12, height = 6)
+```
+
+# SCTransform and filtering
+```{r}
+sample <- subset(sample, subset = nFeature_RNA > 200 & nFeature_RNA < 5000 & percent.mt < 7.5)
+sample <- SCTransform(sample, vars.to.regress = "percent.mt", verbose = FALSE,
+                      conserve.memory = TRUE, return.only.var.genes = TRUE)
+```
+
+# Look at features post filtering
+```{r}
+VlnPlot(sample, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, split.by = "orig.ident")
+ggsave("/Users/jamrute/Desktop/postQC_metrics.png", width = 12, height = 6)
+```
+
+# Cell Cycle Scoring
+```{r}
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+sample <- CellCycleScoring(sample, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+```
+
+###### Dimensionality Reduction
+
+```{r}
+sample <- RunPCA(sample, features = VariableFeatures(object = sample), npcs=100, verbose=TRUE)
+ElbowPlot(sample)
+ggsave("/Users/jamrute/Desktop/PC_elbow.png", width = 12, height = 6)
+```
+
+```{r}
+sample <- FindNeighbors(sample, dims = 1:50, verbose = FALSE)
+sample <- FindClusters(sample, resolution = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.8, 0.7, 0.6), verbose = FALSE)
+sample <- RunUMAP(sample, dims = 1:50, verbose = FALSE)
+```
+
+# Look at the UMAP at various resolutions
+```{r}
+DimPlot(sample, reduction = "umap", label = TRUE, group.by = "SCT_snn_res.0.1")
+ggsave("/Users/jamrute/Desktop/UMAP_res0.1.png", width = 12, height = 6)
+
+DimPlot(sample, reduction = "umap", label = TRUE, group.by = "SCT_snn_res.0.2")
+ggsave("/Users/jamrute/Desktop/UMAP_res0.2.png", width = 12, height = 6)
+
+DimPlot(sample, reduction = "umap", label = TRUE, group.by = "SCT_snn_res.0.3")
+ggsave("/Users/jamrute/Desktop/UMAP_res0.3.png", width = 12, height = 6)
+
+DimPlot(sample, reduction = "umap", label = TRUE, group.by = "SCT_snn_res.0.4")
+ggsave("/Users/jamrute/Desktop/UMAP_res0.4.png", width = 12, height = 6)
+
+DimPlot(sample, reduction = "umap", label = TRUE, group.by = "SCT_snn_res.0.5")
+ggsave("/Users/jamrute/Desktop/UMAP_res0.5.png", width = 12, height = 6)
+
+DimPlot(sample, reduction = "umap", label = TRUE, group.by = "SCT_snn_res.0.6")
+ggsave("/Users/jamrute/Desktop/UMAP_res0.6.png", width = 12, height = 6)
+
+DimPlot(sample, reduction = "umap", label = TRUE, group.by = "SCT_snn_res.0.7")
+ggsave("/Users/jamrute/Desktop/UMAP_res0.7.png", width = 12, height = 6)
+
+DimPlot(sample, reduction = "umap", label = TRUE, group.by = "SCT_snn_res.0.8")
+ggsave("/Users/jamrute/Desktop/UMAP_res0.8.png", width = 12, height = 6)
+```
+
+```{r}
+DimPlot(sample, reduction = "umap", label = TRUE, group.by = "orig.ident")
+ggsave("/Users/jamrute/Desktop/UMAP_samples.png", width = 12, height = 6)
+```
+
+```{r}
+DimPlot(sample, reduction = "umap", group.by = "Phase")
+ggsave("/Users/jamrute/Desktop/UMAP_phase.png", width = 12, height = 6)
+```
+
+###### DGE
+
+```{r}
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+sample.markers <- FindAllMarkers(sample, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+sample.markers %>% group_by(cluster) %>% top_n(n = 25, wt = avg_logFC)
+```
+
+###### Save all Files
+
+```{r}
+save_dir <- "/Users/jamrute/Desktop"
+
+# Save a .rds
+saveRDS(sample, file = file.path(save_dir, "ChiR_IWP_2017.rds"))
+
+# Save the normalized SCT matrix
+write.csv(as.matrix(sample[["SCT"]]@scale.data), 
+          file = file.path(save_dir, "ChiR_IWP_2017_SCT_normalized.txt"), quote = FALSE)
+
+# Save the meta data
+write.csv(sample@meta.data, file = file.path(save_dir, "ChiR_IWP_2017_meta.csv"), quote = FALSE)
+
+# Save the top DGE for clusters
+write.csv(sample.markers, file = file.path(save_dir, "ChiR_IWP_2017_DGE.csv"), quote = FALSE)
+
+# Save a loom version for loading into scanpy
+sample.loom <- as.loom(sample, filename = file.path(save_dir, "ChiR_IWP_2017.loom"), verbose = FALSE)
+sample.loom$close_all()
+```
+
+###### Palantir Prep
+```{r}
+sample <- readRDS("ChiR_IWP_2017.rds")
+```
+
+```{r}
+DimPlot(sample, reduction = "umap", label = TRUE, group.by = "SCT_snn_res.0.5")
+DimPlot(sample, reduction = "umap", label = TRUE, group.by = "orig.ident")
+```
+
+```{r}
+FeaturePlot(sample, features = c("FCN1", "CD52", "PLAC8"))
+```
+
+```{r}
+Idents(object = sample) <- sample@meta.data$orig.ident
+ChiR_subset <- subset(sample, idents = c("ChiR"))
+IWP_subset <- subset(sample, idents = c("IWP"))
+
+save_dir <- "/Users/jamrute/Desktop"
+
+# Save a .rds
+saveRDS(ChiR_subset, file = file.path(save_dir, "ChiR_subset_2017.rds"))
+saveRDS(IWP_subset, file = file.path(save_dir, "IWP_subset_2017.rds"))
+
+# Save the normalized SCT matrix
+write.csv(as.matrix(ChiR_subset[["SCT"]]@scale.data), 
+          file = file.path(save_dir, "ChiR_subset_2017_SCT_normalized.txt"), quote = FALSE)
+
+write.csv(as.matrix(IWP_subset[["SCT"]]@scale.data), 
+          file = file.path(save_dir, "IWP_subset_2017_SCT_normalized.txt"), quote = FALSE)
+
+# Save the meta data
+write.csv(ChiR_subset@meta.data, file = file.path(save_dir, "ChiR_subset_2017_meta.csv"), quote = FALSE)
+write.csv(IWP_subset@meta.data, file = file.path(save_dir, "IWP_subset_2017_meta.csv"), quote = FALSE)
+```
+
+```{r}
+chir_meta <- read.csv2('/Users/jamrute/Desktop/ChiR_myeloid_palantir_meta_data.csv', header=TRUE, sep=',', row.names = 1)
+m2 <- AddMetaData(ChiR_subset, chir_meta)
+
+m2@meta.data$pseudotime <- as.numeric(as.character(m2@meta.data$pseudotime))
+m2@meta.data$entropy <- as.numeric(as.character(m2@meta.data$entropy))
+```
+
+```{r}
+FeaturePlot(m2, reduction = "umap", features = c("pseudotime")) + scale_color_viridis()
+FeaturePlot(m2, reduction = "umap", features = c("entropy")) + scale_color_viridis()
+DimPlot(m2, group.by = "SCT_snn_res.0.5")
+```
+
+```{r}
+IWP_meta <- read.csv2('/Users/jamrute/Desktop/IWP_myeloid_palantir_meta_data.csv', header=TRUE, sep=',', row.names = 1)
+iwp_m2 <- AddMetaData(IWP_subset, IWP_meta)
+
+iwp_m2@meta.data$pseudotime <- as.numeric(as.character(iwp_m2@meta.data$pseudotime))
+iwp_m2@meta.data$entropy <- as.numeric(as.character(iwp_m2@meta.data$entropy))
+```
+
+```{r}
+FeaturePlot(iwp_m2, reduction = "umap", features = c("pseudotime")) + scale_color_viridis()
+FeaturePlot(iwp_m2, reduction = "umap", features = c("entropy")) + scale_color_viridis()
+DimPlot(iwp_m2, group.by = "SCT_snn_res.0.5")
+```
+
+```{r}
+sample <- readRDS("ChiR_IWP_2017.rds")
+meta <- read.csv2('/Users/jamrute/Documents/Graduate_School/Thesis_Lab/Lavine_Projects/Andrea/Andrea_2017/ChiR_IWP/CC_not_Regressed/Palantir/ChiR_IWP_myeloid_palantir_meta_data.csv', header=TRUE, sep=',', row.names = 1)
+s2 <- AddMetaData(sample, meta)
+
+s2@meta.data$pseudotime <- as.numeric(as.character(s2@meta.data$pseudotime))
+s2@meta.data$entropy <- as.numeric(as.character(s2@meta.data$entropy))
+```
+
+```{r}
+FeaturePlot(s2, reduction = "umap", features = c("pseudotime")) + scale_color_viridis()
+FeaturePlot(s2, reduction = "umap", features = c("entropy")) + scale_color_viridis()
+DimPlot(s2, group.by = "SCT_snn_res.0.5")
+```
+
+###### Compare ChiR and IWP
+```{r}
+sample <- readRDS("ChiR_IWP_2017.rds")
+Idents(object = sample) <- sample@meta.data$SCT_snn_res.0.5
+macs <- subset(sample, idents = c("0", "1", "2", "5", "6", "7", "8", "9", "10"))
+DimPlot(macs, reduction = "umap", label = TRUE)
+```
+
+```{r}
+Idents(object = macs) <- macs@meta.data$orig.ident
+macs.markers <- FindAllMarkers(macs, logfc.threshold = 0.05)
+macs.markers.deseq2 <- FindAllMarkers(macs, test.use="DESeq2")
+```
+
+```{r}
+write.csv(as.matrix(macs[["SCT"]]@scale.data), 
+          file = file.path("/Users/jamrute/Desktop", "ChiR_IWP_macs_2017_SCT_normalized.txt"), quote = FALSE)
+
+write.csv(as.matrix(macs[["RNA"]]@counts), 
+          file = file.path("/Users/jamrute/Desktop", "ChiR_IWP_macs_2017_RNA.txt"), quote = FALSE)
+
+write.csv(macs.markers, file = file.path("/Users/jamrute/Desktop", "ChiR_IWP_macs_2017_DGE.csv"), quote = FALSE)
+write.csv(macs.markers, file = file.path("/Users/jamrute/Desktop", "ChiR_IWP_macs_2017_DGE_DESeq2.csv"), quote = FALSE)
+```
+
+```{r}
+macs.markers <- FindAllMarkers(macs, min.pct = 0.25, logfc.threshold = 0.25)
+macs.markers %>% group_by(cluster) %>% top_n(n = 25, wt = avg_logFC)
+```
+
+```{r}
+top10 <- macs.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+DoHeatmap(macs, features = top10$gene) + NoLegend()
+```
+
+
+```{r}
+sample <- readRDS("ChiR_IWP_2017.rds")
+Idents(object = sample) <- sample@meta.data$SCT_snn_res.0.3
+DimPlot(sample, reduction = "umap", label = TRUE)
+```
+
+```{r}
+sample.markers <- FindAllMarkers(sample, only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.05)
+```
+
+```{r}
+top10 <- sample.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+DoHeatmap(sample, features = top10$gene) + NoLegend() + scale_fill_viridis()
+```
+
+```{r}
+write.csv(macs.markers, "/Users/jamrute/Desktop/2017_all_clusters_0.5res_DGE.csv")
+```
+
+
+
+
+
